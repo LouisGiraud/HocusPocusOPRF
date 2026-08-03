@@ -1,89 +1,118 @@
 # Power Residue OPRF
-This is an implementation of the Power Residue Symbol-based OPRF
 
-The goal of the implementation is to prove the concrete efficiency of this approach. It was tested under WSL on Windows, Fedora, and under Ubuntu. However, this is not an industry-level implementation and there might still be subtle bugs.
+This is an implementation of the Power Residue Symbol-based Oblivious Pseudorandom Function (OPRF).
+It is mostly based on the implementation of the Legendre based 2Hash OPRF Protocol by Beullens et al. [2Hash OPRF](https://eprint.iacr.org/2024/450.pdf)
 
-## Structure
-The implementation relies on the [libOTe](https://github.com/osu-crypto/libOTe) library for the Oblivious Transfer implementations and for the implementation of the Puncturable PRF.
- - `OPRFLeg.h` contains a class that allows the execution of the OPRF protocol. The function `eval` is what the OPRF client executes. It takes an input `x` and writes the OPRF output to `output`. The function `blindedEval` is what the OPRF server executes. It takes the key `Key` as input and has no output.
- - The folder `fe25519` contains an implementation of finite field arithmetic for the prime field modulo $2^{255}-19$. The implementation is originally based on [NaCl](https://nacl.cr.yp.to/install.html) but was adapted to our use.
- - The files `smallSetVoleFast.h`, `VolePlus.h`, `voleUtils.h`, and `LegOPRF_ZKProof.h` contain the building blocks for the OPRF.
-    - `smallSetVoleFast.h` contains the small-set VOLE from the [FAEST paper](https://eprint.iacr.org/2023/996.pdf).
-    - `VolePlus.h` contains the VOLE+ protocol from Section E of [our paper](https://eprint.iacr.org/2024/450.pdf).
-    - `voleUtils.h` contains helper functions needed for the VOLE+.
-    - `LegOPRF_ZKProof.h` contains the implementation of [Quicksilver](https://eprint.iacr.org/2021/076.pdf).
- - The folder `tests` contains tests.
- - The files `VolePlus.GMP.h`, `smallSetVoleGMP.h`, and `MockSmallSetVole.h` exist only for testing purposes and can be ignored.
+The goal of this implementation is to prove the concrete efficiency of this approach. It has been tested under Fedora. Please note that this is an academic proof-of-concept and not an industry-level implementation; there might still be subtle bugs.
 
-## Running the Code:
-There is two options for running the code. 
-- Manually installing the preliminaries and running the code natively. 
-- Using the provided Docker image that already has everything preinstalled.
+## Project Structure
 
-### Using Docker:
-If there is a working version of [Docker installed](https://docs.docker.com/engine/install/), one can start the container by running
-`docker run --rm -it sebastianfaller/legendreoprf`. 
+The implementation relies heavily on the [libOTe](https://github.com/osu-crypto/libOTe) library for the Oblivious Transfer protocols and the implementation of the Puncturable PRF (PPRF).
 
-### Installing Preliminaries Manually:
-For building the code, one needs to install a c++ compiler, git (tested with version 2.48.1),libtool (tested with version 2.4.7), cmake (min. version 3.15), GMP (tested with version 6.3.0), and libOTe (tested with commit 2f68131), although our final implementation does not make use of GMP.
-
-To install GMP and cmake on Ubuntu, you can run
-`sudo apt install libgmp3-dev cmake g++ libtool git` 
-or on Fedora 
-`sudo dnf install gmp-devel cmake gcc-c++ libtool git`
+*   `OPRF.h` : Contains the core class that executes the OPRF protocol. 
+    *   The `eval` function is executed by the **Client** (takes an input `x` and writes the output to `output`).
+    *   The `blindedEval` function is executed by the **Server** (takes the secret `Key` as input and has no output).
+*   `main.cpp` : Contains the source code for an interactive CLI implementation to test the protocol locally.
+*   `field25519/`: Contains an implementation of finite field arithmetic for the prime field modulo $2^{255}-19$. Partially adapted from [2Hash's implementation](https://github.com/2HashFramework/LegendreOPRF/)
+*   `fast_residue_25519.h`: Is an extension of the field25519 library taylored for fast power residue symbol computation without our specific parameters
+*   `smallSetVoleFast.h`, `VolePlus.h`, `voleUtils.h`, and `ZKP.h`: The cryptographic building blocks for the OPRF.
+    *   `smallSetVoleFast.h`: The small-set VOLE from the [FAEST paper](https://eprint.iacr.org/2023/996.pdf).
+    *   `VolePlus.h`: The VOLE+ protocol from Section E of [2Hash paper](https://eprint.iacr.org/2024/450.pdf).
+    *   `voleUtils.h`: Helper functions needed for VOLE+.
+    *   `ZKP.h`: The implementation of the [Quicksilver](https://eprint.iacr.org/2021/076.pdf) Zero-Knowledge Proof.
+*   `tests/`: Contains the test suite.
+*   `libOTe/`: Contains commit `0412d31` of the [libOTe library](https://github.com/osu-crypto/libOTe) with a slight modification to run Kyber512 MasRinOT
 
 
-To install libOTe, you must run the following *in the same folder* where the main file is
-`git clone https://github.com/osu-crypto/libOTe.git`
+---
 
-`cd libOTe`
+## Setup & Installation
 
-Go to the last stable version 
-`git reset --hard 0412d31`
-`git submodule update --init --recursive`
+#### 1. System Dependencies
+To build the code, you need a modern C++ compiler (supporting C++20), Git, Libtool, CMake (min 3.15).
 
-Build libOTe
-`python3 build.py --all --boost --sodium` (This might take a while)
-> Troubleshooting: When errors connected to Position Independent Executables (PIE) occur here, you can try to add `set(CMAKE_POSITION_INDEPENDENT_CODE ON)` to the CMakeLists.txt of LibOTe.
+On **Ubuntu**, run:
+```bash
+sudo apt update
+sudo apt install cmake g++ libtool git
+```
+On **Fedora**, run:
+```bash
+sudo dnf install cmake gcc-c++ libtool git
+```
 
-`python3 build.py --sudo --install`
+#### 2. Building libOTe
+The project requires a specific vendored version of `libOTe` (commit `0412d31`) where the `KYBER_K` parameter has been modified from 3 to 2 in `thirdparty/KyberOT/params.h` to enable Kyber512 for MasRinOT.
 
-You will get prompted to enter your sudo password.
-In case this does not work, more detailed instructions can be found [here](https://github.com/osu-crypto/libOTe).
+Navigate into the `libOTe` directory and build it:
+```bash
+cd libOTe
+python3 build.py --all --boost --sodium
+python3 build.py --sudo --install
+```
+*(You will be prompted to enter your sudo password for the installation step. If you encounter Position Independent Executable (PIE) errors, add `set(CMAKE_POSITION_INDEPENDENT_CODE ON)` to libOTe's `CMakeLists.txt`).*
 
-#### Building the OPRF
-To build the OPRF, you first have to create a build directory
-`mkdir build`
-`cd build`
-Then, you can run CMAKE
-`cmake -DCMAKE_BUILD_TYPE=Release ..`
-`cmake --build .`
+#### 3. Building the OPRF Project
+Once `libOTe` is installed, return to the root directory of this repository and build the OPRF project:
+```bash
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake --build .
+```
 
+---
 
-## Testing
-One can run all tests by typing 
-`ctest` while in the build folder. 
-`ctest -VV` gives a more verbose output.
+## Running the Interactive CLI
 
-For just running the final OPRF test that yields the running times reported in the paper, one can run
-`ctest -R OPRFLeg -VV`.
+This repository includes a ready-to-use, interactive command-line interface (CLI) to test the Post-Quantum OPRF functionality locally. 
 
-To fix the clock speed:
-### 1. Disable Turbo Boost (locks to base clock, e.g., 2.4 GHz for i9-10885H)
+After building the project, stay in the `build` directory and run:
+```bash
+./PROPRF
+```
+When executed, the program will prompt you to enter an arbitrary **client input string** and a **server secret key** (up to 32 characters). It will then execute the full OPRF protocol using two local threads, providing a detailed, phase-by-phase breakdown of the exact communication costs (in bytes) before outputting the final PRF evaluation as a hex string.
+
+---
+
+## Testing & Profiling
+
+You can run the full test suite using `ctest` from within the `build` folder:
+```bash
+ctest
+```
+Use `ctest -VV` for a more verbose output.
+
+To run **only** the final OPRF test (which yields the running times reported in the paper), run:
+```bash
+ctest -R test_OPRF -VV
+```
+
+### CPU Clock Speed Configuration (For Reproducible Benchmarks)
+To achieve stable and reproducible benchmark timings, you should fix your CPU clock speed by disabling Turbo Boost.
+
+**1. Disable Turbo Boost (locks to base clock, e.g., 1.6 GHz for Core Ultra 5 135U):**
+```bash
 echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
-
-### 2. Enable Turbo Boost (returns to dynamic clocking up to ~5.0 GHz)
+```
+**2. Re-enable Turbo Boost (returns to dynamic clocking):**
+```bash
 echo 0 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
-
-### 3. Monitor live CPU frequencies across all cores to verify
+```
+**3. Monitor live CPU frequencies across all cores to verify:**
+```bash
 watch -n 1 "grep 'cpu MHz' /proc/cpuinfo"
+```
+
+---
 
 ## Results
-We ran the above tests on a machine with an intel i9-10885H CPU, with a clock speed fixed at 2.4 GHz for three different choices of `t`.
-The resulting running times are as follows:
-| t    | Running Time [ms] |
-| -------- | ------- |
-| 6  | 178    |
-| 8 | 185     |
-| 10    | 313    |
 
+Benchmarks were executed locally on a single machine equipped with an Intel Core Ultra 5 135U processor and 16GB of RAM, running Linux. Both the client and server were executed on the same machine communicating over the local loopback network.
+
+The resulting running times and exact communication costs are as follows:
+
+| `t` | Running Time [ms] | Client Comm. [KB] | Server Comm. [KB] | Total Comm. [KB] |
+|:---:|:---:|:---:|:---:|:---:|
+| **6**  | 83 | 320.22 | 286.19 | 606.42 |
+| **8**  | 99 | 320.22 | 272.05 | 592.27 |
+| **10** | 123 | 320.22 | 266.35 | 586.57 |

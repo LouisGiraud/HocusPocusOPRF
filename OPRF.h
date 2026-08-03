@@ -1,4 +1,6 @@
 #include <coroutine>
+#include <mutex>
+#include <sstream>
 #include "libOTe/config.h"
 
 #include "libOTe/TwoChooseOne/OTExtInterface.h"
@@ -25,8 +27,32 @@
 #include "fast_residue_25519.h"
 #include "field25519/fe25519.h"
 
-
 using namespace osuCrypto;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROFILING MACROS (Thread-Safe, Phase-by-Phase)
+// ═══════════════════════════════════════════════════════════════════════════════
+inline std::mutex oprf_print_mutex; 
+
+#define INIT_PROFILER \
+    uint64_t _s_before = chl.bytesSent(); \
+    uint64_t _r_before = chl.bytesReceived();
+
+#define PRINT_PHASE(phase_name) \
+    do { \
+        if (this->verbose) { \
+            coproto::sync_wait(chl.flush()); \
+            std::ostringstream _oss; \
+            _oss << std::left << std::setw(40) << phase_name \
+                 << " Sent: " << (chl.bytesSent() - _s_before) << " B, \t" \
+                 << "Recv: " << (chl.bytesReceived() - _r_before) << " B\n"; \
+            std::lock_guard<std::mutex> lock(oprf_print_mutex); \
+            std::cout << _oss.str(); \
+        } \
+        _s_before = chl.bytesSent(); \
+        _r_before = chl.bytesReceived(); \
+    } while(0)
+
 
 class OPRF
 {
@@ -40,6 +66,8 @@ public:
     int SYMBOL_BYTES_EPS_PRIME;
     int statistical_security_bits;
     int small_set_bits;
+    bool verbose;
+
     // Offsets is (l',l)
     std::vector<fe25519> offsets;
     int N;
@@ -58,17 +86,18 @@ public:
     IknpOtExtSender *otExtSender;
     IknpOtExtReceiver *otExtRecv;
 
-    OPRF(int len_eval, int len_com, int k, int statistical_security_bits, int small_set_bits) : len_eval(len_eval),
-                                                                        len_com(len_com),
-                                                                        k(k),
-                                                                        statistical_security_bits(statistical_security_bits),
-                                                                        small_set_bits(small_set_bits)
+    OPRF(int len_eval, int len_com, int k, int statistical_security_bits, int small_set_bits, bool verbose = false) 
+        : len_eval(len_eval),
+          len_com(len_com),
+          k(k),
+          statistical_security_bits(statistical_security_bits),
+          small_set_bits(small_set_bits),
+          verbose(verbose)
     {
-
         eps = FastResidue25519::EPS;
         eps_prime = FastResidue25519::EPS_PRIME;
         SYMBOL_BYTES_EPS = FastResidue25519::SYMBOL_BYTES;
-        SYMBOL_BYTES_EPS_PRIME = FastResidue25519::SYMBOL_BYTES; // This is fixed on the choice of eps, eps'
+        SYMBOL_BYTES_EPS_PRIME = FastResidue25519::SYMBOL_BYTES; // This is fixed on the choice of eps, eps'
 
         volePlus = new VolePlus(len_eval, small_set_bits, statistical_security_bits);
 
@@ -91,7 +120,6 @@ public:
         ssVoleRecVolePlus = new SmallSetVoleReceiver25519(volePlus->len+1, small_set_bits, volePlus->k_vole);
         ssVoleSenderVolePlus = new SmallSetVoleSender25519(volePlus->len+1, small_set_bits, volePlus->k_vole);
         
-
         // Compute public parameters l and l' by expanding 0, ensuring no collisions.
         PRNG offset_prng(block(0));
         offsets = std::vector<fe25519>(len_eval + len_com);
@@ -122,12 +150,13 @@ public:
 //  output → final PRF value (after H₂)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-task<> eval(
+task<bool> eval(
     std::vector<char> &x,
     unsigned char *output,
     PRNG &prng,
     Socket &chl)
 {
+    INIT_PROFILER; // Start tracking bytes
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
     // ║  PHASE 0: HASH INPUT x → h   (H₁ with 2¹⁶ iterations)                    ║
@@ -183,8 +212,6 @@ task<> eval(
     coproto::sync_wait(macoro::wrap(pprfReceiver->expand(chl, a, FORMAT, false, 1)));
 
     // ── 1.4 Small‑Set VOLE (split into two buckets) ──
-    //     • oi_vole / hi_vole  → used by VOLE+ (linear arithmetic)
-    //     • oi_zkp  / hi_zkp   → used by ZK proof (QuickSilver)
     std::vector<std::vector<fe25519>> oi_vole;
     std::vector<fe25519> hi_vole;
     auto vole_proto = ssVoleRecVolePlus->receive(oi_vole, hi_vole, a, verifier->k_vole, points, prng, chl);
@@ -195,10 +222,7 @@ task<> eval(
     auto sszkp_proto = ssVoleRecZKP->receive(oi_zkp, hi_zkp, a, 0, points, prng, chl);
     coproto::sync_wait(macoro::wrap(sszkp_proto));
 
-
-    // ════════════════════════════════════════════════════════════════════════════
-    //  END OF PREPROCESSING — now proceed with the actual protocol steps
-    // ════════════════════════════════════════════════════════════════════════════
+    PRINT_PHASE("[Client] Phase 1 (Preprocessing)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -214,8 +238,10 @@ task<> eval(
 
     if (!good) {
         std::cout << "Abort: Server cheated in ZK commitment phase." << std::endl;
-        co_return;
+        co_return false;
     }
+
+    PRINT_PHASE("[Client] Phase 2 (ZK Setup)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -230,6 +256,8 @@ task<> eval(
     fe25519 cu, cv;
     auto plus_proto = volePlus->receive(h, o, gamma, cu, cv, oi_vole, hi_vole, prng, chl);
     coproto::sync_wait(macoro::wrap(plus_proto));
+
+    PRINT_PHASE("[Client] Phase 3 (VOLE+ Eval)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -248,9 +276,11 @@ task<> eval(
     for (size_t i = 0; i < len_com; ++i) {
         if (e[i] == 0) {
             std::cout << "Abort: e_i = 0 detected." << std::endl;
-            co_return;
+            co_return false;
         }
     }
+
+    PRINT_PHASE("[Client] Phase 4 (Recv e)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -273,6 +303,8 @@ task<> eval(
     }
     coproto::sync_wait(chl.send(c_buf));
 
+    PRINT_PHASE("[Client] Phase 5 (Send c)");
+
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
     // ║  PHASE 6: RECEIVE m FROM SERVER AND VERIFY (arrow "m" in Fig. 3)         ║
@@ -291,9 +323,11 @@ task<> eval(
     for (size_t i = 0; i < k; ++i) {
         if (FastResidue25519::presidue_eps(m[i]) != e[c[i]]) {
             std::cout << "Abort: (m_i/p)_ε != e_{c_i}" << std::endl;
-            co_return;
+            co_return false;
         }
     }
+
+    PRINT_PHASE("[Client] Phase 6 (Recv m)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -308,8 +342,10 @@ task<> eval(
 
     if (!valid) {
         std::cout << "Abort: ZK Proof verification failed." << std::endl;
-        co_return;
+        co_return false;
     }
+
+    PRINT_PHASE("[Client] Phase 7 (ZK Verify)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -343,7 +379,7 @@ task<> eval(
     hash_two.Update(transcript.data(), transcript.size());
     hash_two.Final(output);
 
-    co_return;
+    co_return true;
 }
 
 
@@ -358,6 +394,7 @@ task<> blindedEval(
     PRNG &prng,
     Socket &chl)
     {
+        INIT_PROFILER;
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
         // ║  PHASE 0: PREPROCESSING — Generate VOLE correlations                     ║
@@ -387,8 +424,6 @@ task<> blindedEval(
         ));
 
         // ── 0.4 Small‑Set VOLE (split into two buckets) ──
-        //     • ui_vole / vi_vole  → used by VOLE+ (linear arithmetic)
-        //     • ui_zkp  / vi_zkp   → used by ZK proof (QuickSilver)
         std::vector<std::vector<fe25519>> ui_vole, vi_vole;
         auto vole_proto = ssVoleSenderVolePlus->send(ui_vole, vi_vole, b_ot, prover->k_vole, prng, chl);
         coproto::sync_wait(macoro::wrap(vole_proto));
@@ -397,9 +432,7 @@ task<> blindedEval(
         auto sszkp_proto = ssVoleSenderZKP->send(ui_zkp, vi_zkp, b_ot, 0, prng, chl);
         coproto::sync_wait(macoro::wrap(sszkp_proto));
 
-        // ════════════════════════════════════════════════════════════════════════════
-        //  END OF PREPROCESSING — now proceed with the actual protocol steps
-        // ════════════════════════════════════════════════════════════════════════════
+        PRINT_PHASE("[Server] Phase 0 (Preprocessing)");
 
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -428,7 +461,6 @@ task<> blindedEval(
         fe25519 c0, c1, a0, a1;
         a.setone();
 
-        // 1.1 Sample v_i (ε'-th powers), compute u_i = (K + l'_i) * v_i
         for (size_t i = 0; i < len_eval; ++i) {
             v[i] = FastResidue25519::random_power_eps_prime(prng);
             u[i] = (Key + offsets[i]);
@@ -437,17 +469,14 @@ task<> blindedEval(
             a *= v[i];
         }
 
-        // 1.2 Compute a = (∏ v_i)^(-1/ε')
         a = FastResidue25519::pow_inv_eps_prime(a);
 
-        // 1.3 Sample r_u, r_v and b_i (ε-th powers)
         random_fe25519(&ru, prng);
         random_fe25519(&rv, prng);
         for (size_t i = 0; i < k; ++i) {
             b[i] = FastResidue25519::random_power_eps(prng);
         }
 
-        // 1.4 Compute public evaluation vector e
         std::vector<uint32_t> e(len_com);
         fe25519 Kli;
         for (size_t i = 0; i < len_com; ++i) {
@@ -455,19 +484,15 @@ task<> blindedEval(
             e[i] = FastResidue25519::presidue_eps(Kli);
         }
 
-        // 1.5 Compute the partial products y_1, ..., y_8 (where y_i = y_{i-1}^5 and y_0 = a)
         fe25519 prev = a;
         for (size_t i = 0; i < 8; ++i) {
             prev = pow5(prev);
             y[i] = prev;
         }
 
-        // 1.6 Compute accumulators a_0 and a_1
         a0 = (y[7] * y[7]) * y[3] * y[0] * y[0];
         a1 = (y[0] * a0) / (a * a * y[2]); 
         
-        // 1.7 Compute evaluation accumulators c_0 and c_1 (c_0 = ∏_{i=0}^4 v_i, c_1 = ∏_{i=5}^9 v_i)
-        // Note: This block assumes len_eval = 10
         c0.setone();
         c1.setone();
         for (size_t i = 0; i < 5; ++i){
@@ -498,6 +523,8 @@ task<> blindedEval(
         auto wit_proto = prover->commit_to_witness(w, ui_zkp, vi_zkp, prng, chl);
         coproto::sync_wait(macoro::wrap(wit_proto));
 
+        PRINT_PHASE("[Server] Phase 1-2 (Gen & Commit Witness)");
+
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
         // ║  PHASE 3: SEND (u, v, r_u, r_v) TO F_VOLE+  (gets γ back)                ║
@@ -506,6 +533,8 @@ task<> blindedEval(
         std::vector<fe25519> gamma;
         auto plus_proto = volePlus->send(u, v, ru, rv, gamma, ui_vole, vi_vole, prng, chl);
         coproto::sync_wait(macoro::wrap(plus_proto));
+
+        PRINT_PHASE("[Server] Phase 3 (VOLE+ Eval)");
 
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -518,6 +547,8 @@ task<> blindedEval(
         }
         coproto::sync_wait(chl.send(packed_e));
 
+        PRINT_PHASE("[Server] Phase 4 (Send e)");
+
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
         // ║  PHASE 5: RECEIVE CHALLENGE c FROM CLIENT (arrow "c" in Figure 3)        ║
@@ -525,6 +556,8 @@ task<> blindedEval(
 
         std::vector<unsigned char> c(k);
         coproto::sync_wait(chl.recv(c));
+
+        PRINT_PHASE("[Server] Phase 5 (Recv c)");
 
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -543,6 +576,8 @@ task<> blindedEval(
             m[i].pack(m_buf.data() + i * PRIME_BYTES);
         }
         coproto::sync_wait(chl.send(m_buf));
+
+        PRINT_PHASE("[Server] Phase 6 (Send m)");
 
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -566,6 +601,8 @@ task<> blindedEval(
 
         auto proto_prove = prover->prove(gamma, m, cu, cv, offsets, c, prng, chl);
         coproto::sync_wait(macoro::wrap(proto_prove));
+
+        PRINT_PHASE("[Server] Phase 7-8 (ZK Prove)");
 
         co_return;
     }

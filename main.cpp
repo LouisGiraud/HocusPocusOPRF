@@ -1,46 +1,121 @@
 #include <iostream>
+#include <string>
+#include <vector>
+#include <thread>
+#include <iomanip>
+#include <cstring>
+#include <algorithm>
 
-#include <libOTe/config.h>
-
-#include <cryptoTools/Crypto/PRNG.h>
-#include <libOTe/Base/SimplestOT.h>
+// Core protocol headers
 #include "OPRF.h"
+#include "libOTe/Tools/Coproto.h"
+#include "coproto/Socket/AsioSocket.h"
+#include <cryptoTools/Crypto/PRNG.h>
 
 using namespace osuCrypto;
-using namespace std;
 
+int main() {
+    std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║            Post-Quantum OPRF Protocol Interactive CLI        ║\n";
+    std::cout << "╚══════════════════════════════════════════════════════════════╝\n\n";
 
-// This file should eventually just take inputs from the cmd, call the OPRF and return the result
+    // ---------------------------------------------------------
+    // 1. CLI Prompts
+    // ---------------------------------------------------------
+    std::string client_input_str;
+    std::cout << "[Client] Enter your input string: ";
+    std::getline(std::cin, client_input_str);
 
-int main(){
-    // Setup networking. See cryptoTools\frontend_cryptoTools\Tutorials\Network.cpp
+    std::string server_key_str;
+    std::cout << "[Server] Enter server secret key (up to 32 chars): ";
+    std::getline(std::cin, server_key_str);
+
+    // Prepare Client Input
+    std::vector<char> client_input(client_input_str.begin(), client_input_str.end());
+
+    // Prepare Server Key (Pad or truncate to 32 bytes for fe25519)
+    fe25519 server_key;
+    server_key.setzero();
+    for (size_t i = 0; i < std::min(server_key_str.size(), (size_t)32); ++i) {
+        server_key.v[i] = static_cast<uint32_t>(server_key_str[i]);
+    }
+
+    std::cout << "\n[*] Initializing protocol parameters...\n";
+
+    // ---------------------------------------------------------
+    // 2. Protocol Setup
+    // ---------------------------------------------------------
+    int len_eval = 10;
+    int len_com = 61;
+    int k = 53;
+    int statistical_sec_bits = 64;
+    int small_set_bits = 8;
+    
+    // Set to true to see the phase-by-phase communication costs!
+    bool verbose = true; 
+
+    OPRF oprf(len_eval, len_com, k, statistical_sec_bits, small_set_bits, verbose);
     auto sockets = coproto::LocalAsyncSocket::makePair();
 
-    int len = 128;
-    int bits = 2;
-    int numTrees = 8; // Actually, RegularPprf.h line 37 says this must be a multiple of 8. But I tried it with different numbers and it did not obviously crash or anything.
+    std::cout << "[*] Starting execution...\n\n";
 
-    // The code to be run by the receiver.
-    // std::vector<std::vector<mpz_class>> o;
-    // std::vector<mpz_class> h;
-    // auto recverThread = std::thread([&]() {
-    //     PRNG prngRec(sysRandomSeed());
-    //     OtReceiver* otrec = new SimplestOT();
-    //     SmallSetVoleReceiver rec(otrec,len,bits,numTrees); 
-    //     auto protoRec = rec.receive(o, h, prngRec,sockets[0]);
-    //     macoro::sync_wait(std::move(protoRec));
-    // });
-    // PRNG prng(sysRandomSeed());
+    // ---------------------------------------------------------
+    // 3. Spawn Server Thread
+    // ---------------------------------------------------------
+    std::thread serverThread([&]() {
+        PRNG prng(sysRandomSeed());
+        auto proto = oprf.blindedEval(server_key, prng, sockets[1]);
+        
+        try {
+            macoro::sync_wait(std::move(proto));
+        } catch (const std::exception& e) {
+            // Fails silently here so the main thread can handle the abort cleanly
+        }
+    });
+
+    // ---------------------------------------------------------
+    // 4. Run Client in Main Thread
+    // ---------------------------------------------------------
+    PRNG prng(sysRandomSeed());
+    unsigned char final_output[OPRF_OUTPUT_BYTES];
     
-    // OtSender* otsend = new SimplestOT();
-    // SmallSetVoleSender sender(otsend,len,bits,numTrees);
-    // std::vector<std::vector<mpz_class>> u;
-    // std::vector<std::vector<mpz_class>> v;
-    // auto protoSend = sender.send(u,v,prng,sockets[1]);
-    // macoro::sync_wait(std::move(protoSend));
+    auto proto = oprf.eval(client_input, final_output, prng, sockets[0]);
+    bool success = macoro::sync_wait(std::move(proto));
 
-    // recverThread.join();
+    // Wait for server to clean up
+    serverThread.join();
+    
+    macoro::sync_wait(sockets[0].flush());
+    macoro::sync_wait(sockets[1].flush());
 
-    // r.value();
+    // ---------------------------------------------------------
+    // 5. Output and Summary
+    // ---------------------------------------------------------
+    if (success) {
+        std::cout << "\n╔══════════════════════════════════════════════════════════════╗\n";
+        std::cout << "║                OPRF EVALUATION SUCCESSFUL                    ║\n";
+        std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
+        std::cout << " Client Input : " << client_input_str << "\n";
+        
+        std::cout << " PRF Output   : ";
+        for(int i = 0; i < OPRF_OUTPUT_BYTES; ++i){
+            std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)final_output[i];
+        }
+        std::cout << std::dec << "\n";
+    } else {
+        std::cout << "\n[!] OPRF EVALUATION FAILED (e.g., ZKP aborted, malicious server detected)\n";
+    }
+
+    // Print Final Bandwidth
+    double client_sent_kb = sockets[0].bytesSent() / 1024.0;
+    double server_sent_kb = sockets[1].bytesSent() / 1024.0;
+    
+    std::cout << "\n=== Communication Summary ===\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Sent by client: " << client_sent_kb << " KB\n";
+    std::cout << "Sent by server: " << server_sent_kb << " KB\n";
+    std::cout << "Total transfer: " << (client_sent_kb + server_sent_kb) << " KB\n";
+    std::cout << "=============================\n\n";
+
+    return success ? 0 : 1;
 }
-
