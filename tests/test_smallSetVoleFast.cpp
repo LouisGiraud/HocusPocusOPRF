@@ -19,8 +19,8 @@ void test_speed()
     int nrTrials = 10;
     double diff = 0;
     int N = 1<<bits;
-    auto pprfReceiver = new RegularPprfReceiver<block,block,CTX>();
-    auto pprfSender = new RegularPprfSender<block,block,CTX>(N,numTrees);
+    auto pprfReceiver = new RegularPprfReceiver<block,CTX>();
+    auto pprfSender = new RegularPprfSender<block,CTX>(N,numTrees);
     pprfReceiver->configure(N,numTrees);
 
     for (int i = 0; i < nrTrials; ++i)
@@ -87,8 +87,8 @@ void test_correctness()
     int bits = 7;
     int numTrees = 1; // Actually, RegularPprf.h line 37 says this must be a multiple of 8. But I tried it with different numbers and it did not obviously crash or anything.
     int N = 1<<bits;
-    auto pprfReceiver = new RegularPprfReceiver<block,block,CTX>();
-    auto pprfSender = new RegularPprfSender<block,block,CTX>(N,numTrees);
+    auto pprfReceiver = new RegularPprfReceiver<block,CTX>();
+    auto pprfSender = new RegularPprfSender<block,CTX>(N,numTrees);
     pprfReceiver->configure(N,numTrees);
     std::vector<std::vector<fe25519>> o;
     std::vector<fe25519> h;

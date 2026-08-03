@@ -26,8 +26,8 @@ int main()
     int statistical_security_bits = 80;
     int N = 1 << small_set_bits; // SmallSetSize of the smalSetVole
     VolePlus VP(len, small_set_bits, statistical_security_bits);
-    auto pprfReceiver = new RegularPprfReceiver<block,block,CTX>();
-    auto pprfSender = new RegularPprfSender<block,block,CTX>(N,VP.k_vole+1);
+    auto pprfReceiver = new RegularPprfReceiver<block,CTX>();
+    auto pprfSender = new RegularPprfSender<block,CTX>(N,VP.k_vole+1);
     pprfReceiver->configure(N,VP.k_vole+1);
     auto ot_sender = new SimplestOT();
     auto ot_receiver = new SimplestOT();

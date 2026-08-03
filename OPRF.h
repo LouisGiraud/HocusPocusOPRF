@@ -49,8 +49,8 @@ public:
     PROPRF_ZKVerifier *verifier;
     OtSender *ot_sender;
     OtReceiver *ot_receiver;
-    RegularPprfSender<block, block, CTX> *pprfSender;
-    RegularPprfReceiver<block, block, CTX> *pprfReceiver;
+    RegularPprfSender<block, CTX> *pprfSender;
+    RegularPprfReceiver<block, CTX> *pprfReceiver;
     SmallSetVoleSender25519* ssVoleSenderZKP;
     SmallSetVoleReceiver25519* ssVoleRecZKP;
     SmallSetVoleSender25519* ssVoleSenderVolePlus;
@@ -82,8 +82,8 @@ public:
 
         N = 1 << small_set_bits; // SmallSetSize of the smalSetVole
         repeats = prover->k_vole + volePlus->k_vole; // repeat_ZK + repeat Vole+        
-        pprfSender = new RegularPprfSender<block,block,CTX>(N,repeats);
-        pprfReceiver = new RegularPprfReceiver<block,block,CTX>();
+        pprfSender = new RegularPprfSender<block,CTX>(N,repeats);
+        pprfReceiver = new RegularPprfReceiver<block,CTX>();
         pprfReceiver->configure(N,repeats);
 
         ssVoleRecZKP = new SmallSetVoleReceiver25519(verifier->vole_len, small_set_bits, verifier->k_vole);

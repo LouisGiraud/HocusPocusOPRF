@@ -165,13 +165,13 @@ int main() {
 
         // Base OT
         SimplestOT otSender;
-        int baseCount = RegularPprfSender<block,block,CTX>(N, k_vole).baseOtCount();
+        int baseCount = RegularPprfSender<block,CTX>(N, k_vole).baseOtCount();
         std::vector<std::array<block,2>> sendOTs(baseCount);
         auto baseProto = otSender.send(sendOTs, prngProver, sockets[0]);
         coproto::sync_wait(macoro::wrap(baseProto));
 
         // PPRF sender
-        RegularPprfSender<block,block,CTX> pprfSend(N, k_vole);
+        RegularPprfSender<block,CTX> pprfSend(N, k_vole);
         pprfSend.setBase(sendOTs);
         Vec b_ot(N * k_vole);
         coproto::sync_wait(macoro::wrap(
@@ -201,7 +201,7 @@ int main() {
 
     // Base OT
     SimplestOT otReceiver;
-    RegularPprfReceiver<block,block,CTX> pprfRecv;
+    RegularPprfReceiver<block,CTX> pprfRecv;
     pprfRecv.configure(N, k_vole);                  // configure first
 
     int baseCount = pprfRecv.baseOtCount();

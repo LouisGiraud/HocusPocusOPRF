@@ -34,11 +34,15 @@ or on Fedora
 
 
 To install libOTe, you must run the following *in the same folder* where the main file is
-
 `git clone https://github.com/osu-crypto/libOTe.git`
 
 `cd libOTe`
 
+Go to the last stable version 
+`git reset --hard 0412d31`
+`git submodule update --init --recursive`
+
+Build libOTe
 `python3 build.py --all --boost --sodium` (This might take a while)
 > Troubleshooting: When errors connected to Position Independent Executables (PIE) occur here, you can try to add `set(CMAKE_POSITION_INDEPENDENT_CODE ON)` to the CMakeLists.txt of LibOTe.
 
