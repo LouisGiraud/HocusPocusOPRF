@@ -1,0 +1,12 @@
+macro (add_test_case _name)
+    add_executable(test_${_name} "test_${_name}.cpp")
+    target_link_libraries(test_${_name} "PROPRFlib")   
+    add_test(NAME ${_name} COMMAND "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_${_name}")
+    set_tests_properties(${_name} PROPERTIES PASS_REGULAR_EXPRESSION "Correct: true")
+endmacro()
+
+add_test_case(smallSetVoleFast)
+add_test_case(VolePlus)
+add_test_case(fe25519Speed)
+add_test_case(ZKP)
+add_test_case(OPRF)
