@@ -3,7 +3,7 @@
 This is an implementation of the Power Residue Symbol-based Oblivious Pseudorandom Function (OPRF).
 It is mostly based on the implementation of the Legendre based 2Hash OPRF Protocol by Beullens et al. [2Hash OPRF](https://eprint.iacr.org/2024/450.pdf)
 
-The goal of this implementation is to prove the concrete efficiency of this approach. It has been tested under Fedora. Please note that this is an academic proof-of-concept and not an industry-level implementation; there might still be subtle bugs.
+The goal of this implementation is to prove the concrete efficiency of this approach. It has been tested under Fedora, Ubuntu. Please note that this is an academic proof-of-concept and not an industry-level implementation; there might still be subtle bugs.
 
 ## Project Structure
 
