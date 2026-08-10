@@ -10,7 +10,8 @@ namespace FastResidue25519 {
 
     constexpr uint32_t EPS = 781764;
     constexpr uint32_t EPS_PRIME = 781764; 
-    constexpr int SYMBOL_BYTES = 3;
+    constexpr int SYMBOL_BYTES = 5; // This could be encoded in 20 bits but packing in 5 bytes allows for a trivial injection by truncation
+    // scripts/safe_trunc.py was used to verify this is indeed collision free for given eps and eps'
 
     // Automatically generated sliding-window (w=4) addition chain
     // Exponent length: 20 bits
@@ -642,15 +643,22 @@ namespace FastResidue25519 {
 
     // --- Computations ---
     
-    uint32_t presidue_eps(const fe25519& val){
+    uint64_t presidue_eps(const fe25519& val) {
         fe25519 res;
         pow_D(&res, &val);
         res.freeze();
         
-        return res.v[0] | ((uint32_t)res.v[1] << 8) | ((uint32_t)res.v[2] << 16);
+        unsigned char packed[32];
+        fe25519_pack(packed, &res);   // Canonical little-endian 32 bytes
+        
+        uint64_t symbol = 0;
+        for (int i = 0; i < SYMBOL_BYTES; ++i) {
+            symbol |= (static_cast<uint64_t>(packed[i]) << (8 * i));
+        }
+        return symbol;
     }
 
-    uint32_t presidue_eps_prime(const fe25519& val){
+    uint64_t presidue_eps_prime(const fe25519& val){
         return presidue_eps(val);
     }
 
@@ -680,16 +688,16 @@ namespace FastResidue25519 {
 
     // --- Packing ---
 
-    void pack(uint8_t* buffer, uint32_t symbol){
+    void pack(uint8_t* buffer, uint64_t symbol) {
         for (int i = 0; i < SYMBOL_BYTES; ++i) {
             buffer[i] = static_cast<uint8_t>((symbol >> (8 * i)) & 0xFF);
         }
     }
 
-    uint32_t unpack(const uint8_t* buffer){
-        uint32_t symbol = 0;
+    uint64_t unpack(const uint8_t* buffer) {
+        uint64_t symbol = 0;
         for (int i = 0; i < SYMBOL_BYTES; ++i) {
-            symbol |= (static_cast<uint32_t>(buffer[i]) << (8 * i));
+            symbol |= (static_cast<uint64_t>(buffer[i]) << (8 * i));
         }
         return symbol;
     }

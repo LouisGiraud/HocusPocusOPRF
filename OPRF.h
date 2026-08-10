@@ -268,7 +268,7 @@ task<bool> eval(
     std::vector<unsigned char> buffer(len_com * SYMBOL_BYTES_EPS);
     coproto::sync_wait(chl.recv(buffer));
 
-    std::vector<uint32_t> e(len_com);
+    std::vector<uint64_t> e(len_com);
     for (size_t i = 0; i < len_com; ++i) {
         e[i] = FastResidue25519::unpack(&buffer[i * SYMBOL_BYTES_EPS]);
     }
@@ -477,7 +477,7 @@ task<> blindedEval(
             b[i] = FastResidue25519::random_power_eps(prng);
         }
 
-        std::vector<uint32_t> e(len_com);
+        std::vector<uint64_t> e(len_com);
         fe25519 Kli;
         for (size_t i = 0; i < len_com; ++i) {
             Kli = Key + offsets[i + len_eval];
