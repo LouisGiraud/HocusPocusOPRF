@@ -194,6 +194,8 @@ task<bool> eval(
     AlignedUnVector<std::array<block, 2>> baseSend(NUM_BASE_OT);
     auto base_ot_proto = ot_sender->send(baseSend, prng, chl);
     coproto::sync_wait(macoro::wrap(base_ot_proto));
+    
+    PRINT_PHASE("[Client] Phase 1a (Base OT)");
 
     // ── 1.2 OT Extension (IKNP) ──
     otExtRecv->mHashType = HashType::AesHash;
@@ -222,7 +224,7 @@ task<bool> eval(
     auto sszkp_proto = ssVoleRecZKP->receive(oi_zkp, hi_zkp, a, 0, points, prng, chl);
     coproto::sync_wait(macoro::wrap(sszkp_proto));
 
-    PRINT_PHASE("[Client] Phase 1 (Preprocessing)");
+    PRINT_PHASE("[Client] Phase 1b (OT Extensions to sVOLE)");
 
 
     // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -408,6 +410,8 @@ task<> blindedEval(
         auto base_ot_proto = ot_receiver->receive(baseChoice, baseRecv, prng, chl);
         coproto::sync_wait(macoro::wrap(base_ot_proto));
 
+        PRINT_PHASE("[Server] Phase 0a (Base OT)");
+
         // ── 0.2 OT Extension (IKNP) ──
         otExtSender->mHashType = HashType::AesHash;
         int numOTs = pprfSender->baseOtCount();
@@ -432,7 +436,7 @@ task<> blindedEval(
         auto sszkp_proto = ssVoleSenderZKP->send(ui_zkp, vi_zkp, b_ot, 0, prng, chl);
         coproto::sync_wait(macoro::wrap(sszkp_proto));
 
-        PRINT_PHASE("[Server] Phase 0 (Preprocessing)");
+        PRINT_PHASE("[Server] Phase 0b (OT Extensions and sVOLE)");
 
 
         // ╔══════════════════════════════════════════════════════════════════════════╗
